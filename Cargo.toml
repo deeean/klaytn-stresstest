@@ -1,11 +1,21 @@
 [package]
 name = "klaytn-stresstest"
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = { version = "0.11.9", features = ["json", "blocking"] }
-serde = "1.0.136"
-serde_derive = "1.0.136"
+reqwest = { version = "0.11.9", features = ["json"], default-features = false }
+serde = { version = "1.0.136", features = ["derive"] }
+serde_json = "1.0.79"
+jsonrpc-core = "18.0.0"
+derive_more = "0.99.17"
+futures = "0.3.21"
+pin-project = "1.0.10"
+tokio = { version = "1.17.0", features = ["full"] }
+ethereum-types = "0.13.1"
+hex = "0.4.3"
+
+[dev-dependencies]
+web3 = "0.18.0"
