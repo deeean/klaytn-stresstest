@@ -79,7 +79,7 @@ fn main() {
 
   println!("Status: {:?}", report.statuses);
   println!("Total Bytes: {:?}", report.total_size);
-  println!("Avr Latency: {:?}", Duration::from_nanos(total_latency / success));
+  println!("Avg Latency: {:?}", Duration::from_nanos(total_latency / success));
   println!("Min Latency: {:?}", Duration::from_nanos(*min_latency));
   println!("Max Latency: {:?}", Duration::from_nanos(*max_latency));
 }

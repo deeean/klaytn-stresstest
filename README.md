@@ -6,7 +6,7 @@
 ```
 Status: {200: 1000}
 Total Bytes: 2428000
-Avr Latency: 7.494177ms
+Avg Latency: 7.494177ms
 Min Latency: 3.411083ms
 Max Latency: 17.30975ms
 ```
