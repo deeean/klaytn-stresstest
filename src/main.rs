@@ -1,129 +1,85 @@
-#[allow(unused)]
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+use reqwest::StatusCode;
+use threadpool::ThreadPool;
 
-use crate::caver::{
-  types::{Block,BlockNumber},
-  api::{Klay}
-};
-use std::sync::Arc;
-use tokio::time::sleep;
-use tokio::time::Instant;
-use ethereum_types::U64;
+const CONCURRENCY: usize = 10;
+const REQUEST: usize = 100000;
+const RPC_URL: &str = "http://localhost:8551/";
 
-mod caver;
-
-const RPC_URL: &str = "http://localhost:8551";
-const DELAY: u64 = 0;
-const CONCURRENCY: i32 = 30;
-const BATCH_SIZE: i32 = 0;
-
-struct State {
-  pub total: i32,
-  pub healthy: i32,
-  pub unhealthy: i32,
-  pub total_latency: u128,
-  pub latest_latency: u128,
-  pub block_numbers: Vec<U64>
+struct Response {
+  status: u16,
+  size: u64,
+  latency: u64,
 }
 
-impl State {
-  pub fn new() -> Self {
-    Self{
-      total: 0,
-      healthy: 0,
-      unhealthy: 0,
-      total_latency: 0,
-      latest_latency: 0,
-      block_numbers: Vec::new()
-    }
-  }
-
-  pub fn success(&mut self, block_number: U64, latency: u128) {
-    self.total += 1;
-    self.healthy += 1;
-    self.total_latency += latency;
-    self.latest_latency = latency;
-    self.block_numbers.push(block_number);
-
-    if self.block_numbers.len() > 10 {
-      self.block_numbers.remove(0);
-    }
-
-    self.check_print_iteration();
-  }
-
-  pub fn failed(&mut self, latency: u128) {
-    self.total += 1;
-    self.unhealthy += 1;
-    self.total_latency += latency;
-    self.latest_latency = latency;
-
-    self.check_print_iteration();
-  }
-
-  pub fn check_print_iteration(&self) {
-    if self.total % 100 == 0 {
-      self.print();
-    }
-  }
-
-  pub fn print(&self) {
-    println!("Total {}", self.total);
-    println!("Average Latency: {:.2}ms", self.total_latency as f64 / self.total as f64);
-    println!("Latest Latency: {:.2}ms", self.latest_latency);
-    println!("Healthy {}", self.healthy);
-    println!("Unhealthy {}", self.unhealthy);
-    println!("BlockNumbers {:?}", self.block_numbers);
-    println!();
-  }
+#[derive(Default, Debug)]
+struct Report {
+  statuses: HashMap<u16, u32>,
+  total_size: u64,
+  latencies: Vec<u64>,
 }
 
-#[tokio::main]
-pub async fn main() -> caver::Result<()> {
-  let mut handles = Vec::new();
-  let state = Arc::new(std::sync::Mutex::new(State::new()));
+fn get_latest_block() -> Option<Response> {
+  let client = reqwest::blocking::Client::new();
+  let now = Instant::now();
+  let try_resp = client.post(RPC_URL)
+    .header("content-type", "application/json")
+    .body("{\"id\":0,\"method\":\"klay_getBlockByNumber\",\"params\":[\"latest\", false]}")
+    .send();
 
-  for _ in 0..CONCURRENCY {
-    let cloned_state = state.clone();
+  if let Some(resp) = try_resp.ok() {
+    return Some(Response {
+      status: resp.status().as_u16(),
+      size: resp.bytes().unwrap().len() as u64,
+      latency: now.elapsed().as_nanos() as u64,
+    })
+  }
 
-    handles.push(tokio::spawn(async move {
-      let provider = caver::providers::Http::new(RPC_URL);
-      let caver = caver::Client::new(provider);
-      let klay = caver.klay();
-      let mut count = 0;
+  None
+}
 
-      loop {
-        let now = Instant::now();
+fn main() {
+  let pool = ThreadPool::new(CONCURRENCY);
+  let (tx, rx) = std::sync::mpsc::channel();
 
-        match klay.get_block_by_number(BlockNumber::Latest).await {
-          Ok(it) => {
-            match it {
-              Some(block) => {
-                cloned_state.lock().unwrap().success(block.number, now.elapsed().as_millis());
-              },
-              None => {}
-            }
-          }
-          Err(e) => {
-            cloned_state.lock().unwrap().failed(now.elapsed().as_millis())
-          }
+  for _ in 0..REQUEST {
+    let tx = tx.clone();
+
+    pool.execute(move || {
+      tx.send(get_latest_block());
+    });
+  }
+
+  let mut report = Report::default();
+  let mut success: u64 = 0;
+
+  for resp in rx.iter().take(REQUEST) {
+    match resp {
+      Some(resp) => {
+        if let Some(s) = report.statuses.get(&resp.status) {
+          report.statuses.insert(resp.status, s + 1);
+        } else {
+          report.statuses.insert(resp.status, 1);
         }
 
-        if DELAY != 0 {
-          sleep(std::time::Duration::from_millis(DELAY)).await;
-        }
+        report.total_size += resp.size;
+        report.latencies.push(resp.latency);
+        success += 1;
+      },
+      None => {
 
-        count += 1;
-
-        if BATCH_SIZE != 0 && count >= BATCH_SIZE {
-          break;
-        }
       }
-    }));
+    }
   }
 
-  for handle in handles {
-    tokio::join!(handle);
-  }
+  let min_latency = report.latencies.iter().min().unwrap();
+  let max_latency = report.latencies.iter().max().unwrap();
+  let total_latency = report.latencies.iter().sum::<u64>();
 
-  Ok(())
+  println!("{:?}", report.statuses);
+  println!("Total Bytes: {:?}", report.total_size);
+  println!("Avr Latency: {:?}", Duration::from_nanos(total_latency / success));
+  println!("Min Latency: {:?}", Duration::from_nanos(*min_latency));
+  println!("Max Latency: {:?}", Duration::from_nanos(*max_latency));
 }
