@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use threadpool::ThreadPool;
 
 const CONCURRENCY: usize = 10;
-const REQUEST: usize = 100000;
+const REQUEST: usize = 1000;
 const RPC_URL: &str = "http://localhost:8551/";
 
 struct Response {
@@ -77,7 +77,7 @@ fn main() {
   let max_latency = report.latencies.iter().max().unwrap();
   let total_latency = report.latencies.iter().sum::<u64>();
 
-  println!("{:?}", report.statuses);
+  println!("Status: {:?}", report.statuses);
   println!("Total Bytes: {:?}", report.total_size);
   println!("Avr Latency: {:?}", Duration::from_nanos(total_latency / success));
   println!("Min Latency: {:?}", Duration::from_nanos(*min_latency));
